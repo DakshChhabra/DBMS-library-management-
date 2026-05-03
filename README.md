@@ -1,7 +1,7 @@
 # 📚 Library Management System
 **Course:** UCS310 – Database Management Systems  
 **Institute:** Thapar Institute of Engineering & Technology (TIET)  
-**Team:** Akshit Sharma | Archit Singh | Daksh Chhabra  
+**Team:** Daksh Chhabra | Akshit Sharma | Archit Singh |  
 **Batch:** B.Tech CSE 2024–2028
 
 ---
