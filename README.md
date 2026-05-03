@@ -19,15 +19,15 @@ A complete Library Management System built using Oracle SQL with:
 ## 🗂️ Files
 | File | Description |
 |------|-------------|
-| `library_management.sql` | Complete Oracle SQL implementation |
-| `library_management_system.html` | Frontend demo (open in any browser) |
+| `SQL.sql` | Complete Oracle SQL implementation |
+| `DBMS.html` | Frontend demo (open in any browser) |
 
 ---
 
 ## 🚀 How to Run the SQL
 1. Go to [livesql.oracle.com](https://livesql.oracle.com) and sign in
 2. Click **"Start Coding"**
-3. Paste the contents of `library_management.sql`
+3. Paste the contents of `SQL.sql`
 4. Click **Run**
 
 ## 🖥️ How to Run the Frontend
