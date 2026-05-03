@@ -1,0 +1,377 @@
+-- ============================================================
+--  LIBRARY MANAGEMENT SYSTEM
+--  Course: UCS310 - Database Management Systems
+--  TIET | B.Tech CSE | 2024-2028
+--  Members: Daksh Chhabra, Akshit Sharma, Archit Singh
+-- ============================================================
+
+
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE ISSUE_TRANSACTION CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE BOOK CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE MEMBER CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE LIBRARIAN CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP VIEW Active_Issues'; EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP VIEW Overdue_Books'; EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+
+
+-- ============================================================
+-- STEP 2: CREATE TABLES (DDL)
+-- ============================================================
+
+CREATE TABLE BOOK (
+    Book_ID          NUMBER(10)    PRIMARY KEY,
+    Title            VARCHAR2(200) NOT NULL,
+    Author           VARCHAR2(100),
+    Publisher        VARCHAR2(100),
+    ISBN             VARCHAR2(20)  UNIQUE,
+    Category         VARCHAR2(50),
+    Available_Copies NUMBER(5)     DEFAULT 0 CHECK (Available_Copies >= 0)
+);
+
+CREATE TABLE MEMBER (
+    Member_ID       NUMBER(10)    PRIMARY KEY,
+    Name            VARCHAR2(100) NOT NULL,
+    Contact         VARCHAR2(15),
+    Email           VARCHAR2(100),
+    Membership_Date DATE          DEFAULT SYSDATE
+);
+
+CREATE TABLE LIBRARIAN (
+    Librarian_ID NUMBER(10)    PRIMARY KEY,
+    Name         VARCHAR2(100) NOT NULL,
+    Contact      VARCHAR2(15)
+);
+
+CREATE TABLE ISSUE_TRANSACTION (
+    Issue_ID     NUMBER(10)   PRIMARY KEY,
+    Book_ID      NUMBER(10)   REFERENCES BOOK(Book_ID),
+    Member_ID    NUMBER(10)   REFERENCES MEMBER(Member_ID),
+    Librarian_ID NUMBER(10)   REFERENCES LIBRARIAN(Librarian_ID),
+    Issue_Date   DATE         DEFAULT SYSDATE,
+    Due_Date     DATE,
+    Return_Date  DATE,
+    Fine_Amount  NUMBER(8,2)  DEFAULT 0
+);
+
+
+-- ============================================================
+-- STEP 3: INSERT SAMPLE DATA (DML)
+-- ============================================================
+
+-- Books
+INSERT INTO BOOK VALUES (1, 'Database System Concepts',    'Silberschatz', 'McGraw-Hill',    '978-0073523323', 'Computer Science', 5);
+INSERT INTO BOOK VALUES (2, 'Operating System Principles', 'Galvin',       'Wiley',          '978-1118063330', 'Computer Science', 3);
+INSERT INTO BOOK VALUES (3, 'Introduction to Algorithms',  'Cormen',       'MIT Press',      '978-0262033848', 'Mathematics',      4);
+INSERT INTO BOOK VALUES (4, 'Computer Networks',           'Tanenbaum',    'Pearson',        '978-0132126953', 'Networking',       2);
+INSERT INTO BOOK VALUES (5, 'The C Programming Language',  'Kernighan',    'Prentice Hall',  '978-0131103627', 'Programming',      6);
+
+-- Members
+INSERT INTO MEMBER VALUES (101, 'Akshit Sharma',  '9876543210', 'akshit@tiet.ac.in',  DATE '2024-08-01');
+INSERT INTO MEMBER VALUES (102, 'Archit Singh',   '9988776655', 'archit@tiet.ac.in',  DATE '2024-08-01');
+INSERT INTO MEMBER VALUES (103, 'Daksh Chhabra',  '9871234560', 'daksh@tiet.ac.in',   DATE '2024-08-01');
+INSERT INTO MEMBER VALUES (104, 'Priya Mehra',    '9090909090', 'priya@tiet.ac.in',   DATE '2024-09-15');
+INSERT INTO MEMBER VALUES (105, 'Rohan Kapoor',   '8800112233', 'rohan@tiet.ac.in',   DATE '2024-09-20');
+
+-- Librarians
+INSERT INTO LIBRARIAN VALUES (1, 'James Bond', '7700112233');
+INSERT INTO LIBRARIAN VALUES (2, 'Suresh Kumar', '7711223344');
+
+-- Issue Transactions (some returned, some overdue, some active)
+INSERT INTO ISSUE_TRANSACTION VALUES (1001, 1, 101, 1, DATE '2025-04-01', DATE '2025-04-15', DATE '2025-04-14', 0);    -- returned on time
+INSERT INTO ISSUE_TRANSACTION VALUES (1002, 2, 102, 1, DATE '2025-04-05', DATE '2025-04-19', DATE '2025-04-25', 12);   -- returned late, fine Rs.12
+INSERT INTO ISSUE_TRANSACTION VALUES (1003, 3, 103, 2, DATE '2025-04-10', DATE '2025-04-24', NULL,             0);     -- still issued (active)
+INSERT INTO ISSUE_TRANSACTION VALUES (1004, 4, 104, 1, DATE '2025-03-01', DATE '2025-03-15', NULL,             0);     -- overdue (not returned)
+INSERT INTO ISSUE_TRANSACTION VALUES (1005, 5, 105, 2, DATE '2025-04-20', DATE '2025-05-04', NULL,             0);     -- active, due soon
+
+COMMIT;
+
+
+-- ============================================================
+-- STEP 4: PL/SQL FUNCTION – Calculate Fine
+-- (Create this BEFORE procedures since they call it)
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION Calculate_Fine(p_Issue_ID IN NUMBER)
+RETURN NUMBER AS
+    v_due    DATE;
+    v_return DATE := SYSDATE;
+    v_days   NUMBER;
+    v_fine   NUMBER := 0;
+BEGIN
+    SELECT Due_Date INTO v_due
+    FROM ISSUE_TRANSACTION
+    WHERE Issue_ID = p_Issue_ID;
+
+    v_days := TRUNC(v_return) - TRUNC(v_due);
+
+    IF v_days > 0 THEN
+        v_fine := v_days * 2;   -- Rs. 2 fine per overdue day
+    END IF;
+
+    RETURN v_fine;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 0;
+END;
+/
+
+
+-- ============================================================
+-- STEP 5: PL/SQL PROCEDURES
+-- ============================================================
+
+-- Procedure: Issue a Book
+CREATE OR REPLACE PROCEDURE Issue_Book(
+    p_Issue_ID     IN NUMBER,
+    p_Book_ID      IN NUMBER,
+    p_Member_ID    IN NUMBER,
+    p_Librarian_ID IN NUMBER
+) AS
+    v_copies NUMBER;
+BEGIN
+    -- Check availability
+    SELECT Available_Copies INTO v_copies
+    FROM BOOK WHERE Book_ID = p_Book_ID;
+
+    IF v_copies <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'No copies available for this book.');
+    END IF;
+
+    -- Insert transaction
+    INSERT INTO ISSUE_TRANSACTION(Issue_ID, Book_ID, Member_ID, Librarian_ID, Issue_Date, Due_Date, Fine_Amount)
+    VALUES (p_Issue_ID, p_Book_ID, p_Member_ID, p_Librarian_ID, SYSDATE, SYSDATE + 14, 0);
+
+    -- Reduce available copies
+    UPDATE BOOK SET Available_Copies = Available_Copies - 1
+    WHERE Book_ID = p_Book_ID;
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('SUCCESS: Book ID ' || p_Book_ID || ' issued to Member ID ' || p_Member_ID);
+
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR: Book not found.');
+    WHEN OTHERS THEN
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+END;
+/
+
+
+-- Procedure: Return a Book
+CREATE OR REPLACE PROCEDURE Return_Book(
+    p_Issue_ID IN NUMBER
+) AS
+    v_book  NUMBER;
+    v_fine  NUMBER;
+BEGIN
+    -- Get book ID from transaction
+    SELECT Book_ID INTO v_book
+    FROM ISSUE_TRANSACTION WHERE Issue_ID = p_Issue_ID;
+
+    -- Calculate fine
+    v_fine := Calculate_Fine(p_Issue_ID);
+
+    -- Update transaction
+    UPDATE ISSUE_TRANSACTION
+    SET Return_Date = SYSDATE,
+        Fine_Amount = v_fine
+    WHERE Issue_ID = p_Issue_ID;
+
+    -- Restore available copies
+    UPDATE BOOK SET Available_Copies = Available_Copies + 1
+    WHERE Book_ID = v_book;
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('SUCCESS: Book returned. Fine charged: Rs.' || v_fine);
+
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('ERROR: Issue record not found.');
+    WHEN OTHERS THEN
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('ERROR: ' || SQLERRM);
+END;
+/
+
+
+-- ============================================================
+-- STEP 6: TRIGGERS
+-- ============================================================
+
+-- Trigger: Prevent issuing if no copies available
+CREATE OR REPLACE TRIGGER Check_Book_Availability
+BEFORE INSERT ON ISSUE_TRANSACTION
+FOR EACH ROW
+DECLARE
+    v_copies NUMBER;
+BEGIN
+    SELECT Available_Copies INTO v_copies
+    FROM BOOK WHERE Book_ID = :NEW.Book_ID;
+
+    IF v_copies <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Trigger: Book not available for issue.');
+    END IF;
+END;
+/
+
+-- Trigger: Auto-update copies when a book is returned
+CREATE OR REPLACE TRIGGER Restore_Book_Copies
+AFTER UPDATE OF Return_Date ON ISSUE_TRANSACTION
+FOR EACH ROW
+WHEN (NEW.Return_Date IS NOT NULL AND OLD.Return_Date IS NULL)
+BEGIN
+    UPDATE BOOK
+    SET Available_Copies = Available_Copies + 1
+    WHERE Book_ID = :NEW.Book_ID;
+END;
+/
+
+
+-- ============================================================
+-- STEP 7: VIEWS
+-- ============================================================
+
+-- View: All currently active (issued, not returned) books
+CREATE VIEW Active_Issues AS
+SELECT
+    it.Issue_ID,
+    b.Title,
+    b.Author,
+    m.Name        AS Member_Name,
+    l.Name        AS Librarian_Name,
+    it.Issue_Date,
+    it.Due_Date
+FROM ISSUE_TRANSACTION it
+JOIN BOOK      b ON it.Book_ID      = b.Book_ID
+JOIN MEMBER    m ON it.Member_ID    = m.Member_ID
+JOIN LIBRARIAN l ON it.Librarian_ID = l.Librarian_ID
+WHERE it.Return_Date IS NULL;
+
+-- View: Overdue books (issued and past due date)
+CREATE VIEW Overdue_Books AS
+SELECT *
+FROM Active_Issues
+WHERE Due_Date < SYSDATE;
+
+
+-- ============================================================
+-- STEP 8: TEST QUERIES (Run these to verify everything works)
+-- ============================================================
+
+SET SERVEROUTPUT ON;
+
+-- 8.1 View all books
+SELECT * FROM BOOK;
+
+-- 8.2 View all members
+SELECT * FROM MEMBER;
+
+-- 8.3 View all transactions
+SELECT * FROM ISSUE_TRANSACTION;
+
+-- 8.4 View active issues (not yet returned)
+SELECT * FROM Active_Issues;
+
+-- 8.5 View overdue books
+SELECT * FROM Overdue_Books;
+
+-- 8.6 JOIN query: Full transaction details
+SELECT
+    it.Issue_ID,
+    b.Title,
+    m.Name       AS Member_Name,
+    l.Name       AS Librarian_Name,
+    it.Issue_Date,
+    it.Due_Date,
+    it.Return_Date,
+    it.Fine_Amount
+FROM ISSUE_TRANSACTION it
+JOIN BOOK      b ON it.Book_ID      = b.Book_ID
+JOIN MEMBER    m ON it.Member_ID    = m.Member_ID
+JOIN LIBRARIAN l ON it.Librarian_ID = l.Librarian_ID
+ORDER BY it.Issue_Date DESC;
+
+-- 8.7 Members with fines (GROUP BY + HAVING)
+SELECT
+    m.Name,
+    COUNT(it.Issue_ID)    AS Total_Borrowed,
+    SUM(it.Fine_Amount)   AS Total_Fine
+FROM MEMBER m
+JOIN ISSUE_TRANSACTION it ON m.Member_ID = it.Member_ID
+GROUP BY m.Name
+HAVING SUM(it.Fine_Amount) > 0
+ORDER BY Total_Fine DESC;
+
+-- 8.8 Books by category
+SELECT Category, COUNT(*) AS Total_Books, SUM(Available_Copies) AS Available
+FROM BOOK
+GROUP BY Category;
+
+-- 8.9 Test Issue_Book procedure (issue Book 3 to Member 104)
+EXEC Issue_Book(1006, 3, 104, 1);
+
+-- 8.10 Verify the new issue
+SELECT * FROM Active_Issues;
+
+-- 8.11 Test Return_Book procedure
+EXEC Return_Book(1003);
+
+-- 8.12 Verify fine was calculated
+SELECT Issue_ID, Return_Date, Fine_Amount FROM ISSUE_TRANSACTION WHERE Issue_ID = 1003;
+
+-- 8.13 Test Calculate_Fine function directly
+SELECT Calculate_Fine(1004) AS Fine_For_Overdue_Issue FROM DUAL;
+
+
+-- ============================================================
+-- STEP 9: CURSOR – Transaction Report
+-- ============================================================
+
+DECLARE
+    CURSOR c_report IS
+        SELECT
+            it.Issue_ID,
+            b.Title,
+            m.Name         AS Member_Name,
+            it.Issue_Date,
+            it.Due_Date,
+            it.Return_Date,
+            NVL(it.Fine_Amount, 0) AS Fine
+        FROM ISSUE_TRANSACTION it
+        JOIN BOOK   b ON it.Book_ID   = b.Book_ID
+        JOIN MEMBER m ON it.Member_ID = m.Member_ID
+        ORDER BY it.Issue_Date DESC;
+
+    rec c_report%ROWTYPE;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('========== LIBRARY TRANSACTION REPORT ==========');
+    DBMS_OUTPUT.PUT_LINE(RPAD('Issue ID', 10) || RPAD('Book Title', 35) ||
+                         RPAD('Member', 20) || RPAD('Fine', 8));
+    DBMS_OUTPUT.PUT_LINE(RPAD('-', 75, '-'));
+
+    OPEN c_report;
+    LOOP
+        FETCH c_report INTO rec;
+        EXIT WHEN c_report%NOTFOUND;
+
+        DBMS_OUTPUT.PUT_LINE(
+            RPAD(rec.Issue_ID, 10) ||
+            RPAD(SUBSTR(rec.Title, 1, 33), 35) ||
+            RPAD(rec.Member_Name, 20) ||
+            'Rs.' || rec.Fine
+        );
+    END LOOP;
+    CLOSE c_report;
+
+    DBMS_OUTPUT.PUT_LINE(RPAD('-', 75, '-'));
+    DBMS_OUTPUT.PUT_LINE('Total Transactions: ' || c_report%ROWCOUNT);
+    DBMS_OUTPUT.PUT_LINE('=================================================');
+END;
+/
